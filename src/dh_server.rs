@@ -31,7 +31,7 @@ impl DHLayerEndpoint for DHSever {
                     Err(io::Error::new(ErrorKind::Other, "unknown src"))
                 } else if dh_layer.content_type == DATA_TRANSMISSION {
                     println!("recv bytes from client {:?}", dh_layer.payload.to_bytes());
-                    self.send_pkt(&dh_layer, src)?;
+                    self.send_pkt(&DHLayer::new_data_transmission("hello client, this is server".to_bytes()), src)?;
                     Ok(())
                 } else {
                     Err(io::Error::new(ErrorKind::Other, "unknown content_type"))

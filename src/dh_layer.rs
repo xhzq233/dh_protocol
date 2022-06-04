@@ -1,9 +1,9 @@
-use std::{io};
+use std::{io, u128};
 use std::net::{SocketAddr};
 use num_prime::RandPrime;
 use rand::{thread_rng};
 
-pub type Key = u64;
+pub type Key = u128;
 
 pub const HAND_SHAKE_REQUEST: u8 = 1;
 pub const HAND_SHAKE_REPLY: u8 = 2;
@@ -11,15 +11,18 @@ pub const DATA_TRANSMISSION: u8 = 3;
 const DH_IDENTIFIER: [u8; 2] = ['D' as u8, 'H' as u8];
 
 pub trait DHLayerEndpoint {
+
     //将data添加到udp层上发送
     fn send_pkt(&self, data: &DHLayer, dst: &SocketAddr) -> Result<(), io::Error>;
+
     //接受来自upd的payload
     fn recv_pkt(&self, data: &[u8], src: &SocketAddr) -> Result<(), io::Error>;
     //建立连接
     fn establish_connection(&mut self, data: &[u8], addr: &SocketAddr) -> Result<(), io::Error>;
-    //解密data
+
+    // 解密data
     fn decrypt(data: &[u8], key: Key) -> Vec<u8> {
-        let bs: [u8; 8] = key.to_le_bytes();
+        let bs: [u8; 16] = key.to_le_bytes();
         let mut v = vec![0; data.len()];
         for (i, value) in data.iter().enumerate() {
             v[i] = value ^ bs[i % 16];
@@ -27,14 +30,9 @@ pub trait DHLayerEndpoint {
         v
     }
 
-    //解密data
+    // 加密data todo()
     fn encrypt(data: &[u8], key: Key) -> Vec<u8> {
-        let bs: [u8; 8] = key.to_le_bytes();
-        let mut v = vec![0; data.len()];
-        for (i, value) in data.iter().enumerate() {
-            v[i] = value ^ bs[i % 16];
-        }
-        v
+        Self::decrypt(data, key)
     }
 
     // return a prime
@@ -48,6 +46,7 @@ pub trait DHLayerEndpoint {
         println!("computing primitive_root of {}", prime);
         for i in 2..(prime - 1) {
             if Self::mod_power(i, k, prime) != 1 {
+                println!("find! {}", i);
                 return Some(i);
             }
         }
@@ -60,7 +59,7 @@ pub trait DHLayerEndpoint {
         let mut g = g % p;
         let mut power = power;
         while power > 0 {
-            if (power & 1) != 0 {
+            if (power & 0x01) == 0x01 {
                 res = (res * g) % p;
             }
             power = power >> 1;
@@ -75,8 +74,8 @@ pub struct DHLayer<'a> {
     pub dh_identifier: [u8; 2],
     // 1 or 2 or 3
     pub content_type: u8,
-    // 1 => 3*8, length of p and g and upper_a
-    // 2 => 1*8, length of upper_b
+    // 1 => 3*16, length of p and g and upper_a
+    // 2 => 1*16, length of upper_b
     // 3 => length of data(payload)
     pub length: u32,
     // p + g + upper_a when type is 1,
@@ -105,13 +104,12 @@ impl ToBytes for &'static str {
 
 impl<'a> DHLayer<'a> {
     pub fn new_handshake_request(p: Key, g: Key, upper_a: Key) -> DHLayer<'a> {
-        let mut v = vec![0u8; 8 * 3];
-        v.append(&mut p.to_le_bytes().to_vec());
+        let mut v = p.to_le_bytes().to_vec();
         v.append(&mut g.to_le_bytes().to_vec());
         v.append(&mut upper_a.to_le_bytes().to_vec());
         DHLayer {
             dh_identifier: DH_IDENTIFIER,
-            content_type: DATA_TRANSMISSION,
+            content_type: HAND_SHAKE_REQUEST,
             length: 16 * 3,
             payload: Box::new(v),
         }
@@ -120,7 +118,7 @@ impl<'a> DHLayer<'a> {
     pub fn new_handshake_reply(upper_b: Key) -> DHLayer<'a> {
         DHLayer {
             dh_identifier: DH_IDENTIFIER,
-            content_type: DATA_TRANSMISSION,
+            content_type: HAND_SHAKE_REPLY,
             length: 16,
             payload: Box::new(upper_b.to_le_bytes().to_vec()),
         }
@@ -170,9 +168,10 @@ impl<'a> DHLayer<'a> {
         if self.content_type != HAND_SHAKE_REQUEST {
             None
         } else {
-            let p = u64::from_le_bytes(self.payload.to_bytes()[7..(7 + 8)].try_into().ok()?);
-            let g = u64::from_le_bytes(self.payload.to_bytes()[(7 + 8)..(7 + 16)].try_into().ok()?);
-            let upper_a = u64::from_le_bytes(self.payload.to_bytes()[(7 + 16)..(7 + 24)].try_into().ok()?);
+            let bytes = self.payload.to_bytes();
+            let p = u128::from_le_bytes(bytes[..16].try_into().ok()?);
+            let g = u128::from_le_bytes(bytes[16..32].try_into().ok()?);
+            let upper_a = u128::from_le_bytes(bytes[32..48].try_into().ok()?);
             Some([p, g, upper_a])
         }
     }
@@ -180,7 +179,7 @@ impl<'a> DHLayer<'a> {
         if self.content_type != HAND_SHAKE_REPLY {
             None
         } else {
-            let b = u64::from_le_bytes(self.payload.to_bytes()[7..(7 + 8)].try_into().ok()?);
+            let b = u128::from_le_bytes(self.payload.to_bytes()[..16].try_into().ok()?);
             Some(b)
         }
     }

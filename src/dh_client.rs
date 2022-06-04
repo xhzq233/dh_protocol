@@ -1,3 +1,5 @@
+use std::io;
+use std::io::ErrorKind;
 use std::io::ErrorKind::{InvalidInput, Other};
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::str::{from_utf8};
@@ -60,16 +62,22 @@ impl DHLayerEndpoint for DHClient {
     fn recv_pkt(&self, data: &[u8], src: &SocketAddr) -> Result<(), std::io::Error> {
         let v = Self::decrypt(data, self.key);
         let data = &*v;
-        match from_utf8(data) {
-            Ok(str) => {
-                println!("recv utf8 {} from {}", str, src);
-                Ok(())
+        let x = match DHLayer::from(data) {
+            None => Err(io::Error::new(ErrorKind::InvalidInput, "parse error")),
+            Some(dh_layer) => {
+                match from_utf8(dh_layer.payload.to_bytes()) {
+                    Ok(str) => {
+                        println!("recv utf8 {} from {}", str, src);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        println!("recv bytes {:?} from {}", data, src);
+                        Err(std::io::Error::new(Other, e.to_string()))
+                    }
+                }
             }
-            Err(e) => {
-                println!("recv bytes {:?} from {}", data, src);
-                Err(std::io::Error::new(Other, e.to_string()))
-            }
-        }
+        };
+        x
     }
 
     fn establish_connection(&mut self, data: &[u8], src: &SocketAddr) -> Result<(), std::io::Error> {

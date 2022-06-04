@@ -20,9 +20,7 @@ fn main() -> Result<(), Error> {
             .help("run as server")
             .short("s")
             .required(false))
-        .get_matches_from(vec![
-            "dh_protocol", "-c"
-        ]);
+        .get_matches();
 
     let use_client = matches.is_present("client");
     let use_server = matches.is_present("server");
