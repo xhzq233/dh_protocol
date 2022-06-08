@@ -35,7 +35,7 @@ fn main() -> Result<(), Error> {
             .short("d")
             .long("dst_ip")
             .takes_value(true)
-            .required(true))
+            .required(false))
         .get_matches();
 
     let use_client = matches.is_present("client");
