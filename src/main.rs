@@ -24,17 +24,32 @@ fn main() -> Result<(), Error> {
             .help("run as server")
             .short("s")
             .required(false))
+        .arg(Arg::with_name("ip")
+            .help("host ip address")
+            .short("i")
+            .long("ip")
+            .takes_value(true)
+            .required(true))
+        .arg(Arg::with_name("dst")
+            .help("the destination ip addr where the client sends the message")
+            .short("d")
+            .long("dst_ip")
+            .takes_value(true)
+            .required(true))
         .get_matches();
 
     let use_client = matches.is_present("client");
     let use_server = matches.is_present("server");
+
+    let ip = matches.value_of("ip").unwrap();
     if use_client ^ use_server {
         if use_server {
-            let mut server = DHSever::new(("127.0.0.1", 23334))?;
+            let mut server = DHSever::new((ip, 23334))?;
             server.run()?;
         } else {
-            let mut client = DHClient::new(("127.0.0.1", 23333))?;
-            client.establish_connection(("127.0.0.1", 23334))?;
+            let dst = matches.value_of("dst").expect("need --dst: the destination ip addr where the client sends the message");
+            let mut client = DHClient::new((ip, 23333))?;
+            client.establish_connection((dst, 23334))?;
             let client = Arc::new(client);
             let client_clone = client.clone();
             thread::spawn(move ||{
