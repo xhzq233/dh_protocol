@@ -17,8 +17,9 @@ pub trait DHLayerEndpoint {
 
     //接受来自upd的payload
     fn recv_pkt(&self, data: &[u8], src: &SocketAddr) -> Result<(), io::Error>;
+
     //建立连接
-    fn establish_connection(&mut self, data: &[u8], addr: &SocketAddr) -> Result<(), io::Error>;
+    // fn establish_connection(&self, data: &[u8], addr: &SocketAddr) -> Result<(), io::Error>;
 
     // 解密data
     fn decrypt(data: &[u8], key: Key) -> Vec<u8> {
@@ -44,7 +45,7 @@ pub trait DHLayerEndpoint {
     fn get_primitive_root(prime: Key) -> Option<Key> {
         let k = (prime - 1) >> 1;
         println!("computing primitive_root of {}", prime);
-        for i in 2..(prime - 1) {
+        for i in (2..prime/2).rev() {//从高处开始找，找大数
             if Self::mod_power(i, k, prime) != 1 {
                 println!("find! {}", i);
                 return Some(i);
@@ -96,7 +97,7 @@ impl ToBytes for Vec<u8> {
     fn to_bytes(&self) -> &[u8] { &self }
 }
 
-impl ToBytes for &'static str {
+impl ToBytes for &str {
     fn to_bytes(&self) -> &[u8] {
         self.as_bytes()
     }
