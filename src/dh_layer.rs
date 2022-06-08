@@ -11,41 +11,25 @@ pub const DATA_TRANSMISSION: u8 = 3;
 const DH_IDENTIFIER: [u8; 2] = ['D' as u8, 'H' as u8];
 
 pub trait DHLayerEndpoint {
+    //将buf添加到udp层上发送
+    fn send_dh_pkt(&self, buf: &[u8], dst: &SocketAddr) -> Result<(), io::Error>;
 
-    //将data添加到udp层上发送
-    fn send_pkt(&self, data: &DHLayer, dst: &SocketAddr) -> Result<(), io::Error>;
-
-    //接受来自upd的payload
-    fn recv_pkt(&self, data: &[u8], src: &SocketAddr) -> Result<(), io::Error>;
+    //接受来自upd的payload, 转成dh layer后 返回dh layer的payload的大小
+    fn recv_dh_pkt<'a>(&self, buf: &'a mut [u8]) -> Result<(DHLayer<'a>, SocketAddr), io::Error>;
 
     //建立连接
     // fn establish_connection(&self, data: &[u8], addr: &SocketAddr) -> Result<(), io::Error>;
 
-    // 解密data
-    fn decrypt(data: &[u8], key: Key) -> Vec<u8> {
-        let bs: [u8; 16] = key.to_le_bytes();
-        let mut v = vec![0; data.len()];
-        for (i, value) in data.iter().enumerate() {
-            v[i] = value ^ bs[i % 16];
-        }
-        v
-    }
-
-    // 加密data todo()
-    fn encrypt(data: &[u8], key: Key) -> Vec<u8> {
-        Self::decrypt(data, key)
-    }
-
     // return a prime
     fn generate_key() -> Key {
         let mut rng = thread_rng();
-        rng.gen_prime(64, None)
+        rng.gen_prime(127, None)
     }
 
     fn get_primitive_root(prime: Key) -> Option<Key> {
         let k = (prime - 1) >> 1;
         println!("computing primitive_root of {}", prime);
-        for i in (2..prime/2).rev() {//从高处开始找，找大数
+        for i in (2..prime / 2).rev() {//从高处开始找，找大数
             if Self::mod_power(i, k, prime) != 1 {
                 println!("find! {}", i);
                 return Some(i);
@@ -82,29 +66,33 @@ pub struct DHLayer<'a> {
     // p + g + upper_a when type is 1,
     // upper_b when type is 2,
     // data when type is 3
-    pub payload: Box<dyn ToBytes + 'a>,
+    pub payload: &'a [u8],
 }
 
-pub trait ToBytes {
-    fn to_bytes(&self) -> &[u8];
+pub trait Crypt{
+    // 加密data todo()
+    fn encrypted(&self,key: Key) -> Vec<u8>;
+    // 解密data
+    fn decrypted(&self,key: Key) -> Vec<u8>;
 }
 
-impl ToBytes for &[u8] {
-    fn to_bytes(&self) -> &[u8] { self }
-}
+impl Crypt for &[u8] {
+    fn encrypted(&self, key: Key) -> Vec<u8> {
+        let bs: [u8; 16] = key.to_le_bytes();
+        let mut v = vec![0; self.len()];
+        for (i, value) in self.iter().enumerate() {
+            v[i] = value ^ bs[i % 16];
+        }
+        v
+    }
 
-impl ToBytes for Vec<u8> {
-    fn to_bytes(&self) -> &[u8] { &self }
-}
-
-impl ToBytes for &str {
-    fn to_bytes(&self) -> &[u8] {
-        self.as_bytes()
+    fn decrypted(&self, key: Key) -> Vec<u8> {
+        self.encrypted(key)
     }
 }
 
 impl<'a> DHLayer<'a> {
-    pub fn new_handshake_request(p: Key, g: Key, upper_a: Key) -> DHLayer<'a> {
+    pub fn new_handshake_request(p: Key, g: Key, upper_a: Key) -> Vec<u8> {
         let mut v = p.to_le_bytes().to_vec();
         v.append(&mut g.to_le_bytes().to_vec());
         v.append(&mut upper_a.to_le_bytes().to_vec());
@@ -112,26 +100,26 @@ impl<'a> DHLayer<'a> {
             dh_identifier: DH_IDENTIFIER,
             content_type: HAND_SHAKE_REQUEST,
             length: 16 * 3,
-            payload: Box::new(v),
-        }
+            payload: v.as_slice(),
+        }.to_bytes()
     }
 
-    pub fn new_handshake_reply(upper_b: Key) -> DHLayer<'a> {
+    pub fn new_handshake_reply(upper_b: Key) -> Vec<u8> {
         DHLayer {
             dh_identifier: DH_IDENTIFIER,
             content_type: HAND_SHAKE_REPLY,
             length: 16,
-            payload: Box::new(upper_b.to_le_bytes().to_vec()),
-        }
+            payload: &upper_b.to_le_bytes(),
+        }.to_bytes()
     }
 
-    pub fn new_data_transmission(data: &'a [u8]) -> DHLayer<'a> {
+    pub fn new_data_transmission(data: &'a [u8]) -> Vec<u8> {
         DHLayer {
             dh_identifier: DH_IDENTIFIER,
             content_type: DATA_TRANSMISSION,
             length: data.len() as u32,
-            payload: Box::new(data),
-        }
+            payload: data,
+        }.to_bytes()
     }
 
     pub fn from(udp_payload: &[u8]) -> Option<DHLayer> {
@@ -145,7 +133,7 @@ impl<'a> DHLayer<'a> {
                     dh_identifier: DH_IDENTIFIER,
                     content_type,
                     length,
-                    payload: Box::new(&udp_payload[7..]),
+                    payload: &udp_payload[7..],
                 })
             }
         } else {
@@ -162,25 +150,27 @@ impl<'a> DHLayer<'a> {
         res[5] = (self.length >> 16) as u8;
         res[4] = (self.length >> 8) as u8;
         res[3] = self.length as u8;
-        res.append(&mut self.payload.to_bytes().to_vec());
+        res.append(&mut self.payload.to_vec());
         res
     }
+
     pub fn get_pg_ua(&self) -> Option<[Key; 3]> {
         if self.content_type != HAND_SHAKE_REQUEST {
             None
         } else {
-            let bytes = self.payload.to_bytes();
+            let bytes = self.payload;
             let p = u128::from_le_bytes(bytes[..16].try_into().ok()?);
             let g = u128::from_le_bytes(bytes[16..32].try_into().ok()?);
             let upper_a = u128::from_le_bytes(bytes[32..48].try_into().ok()?);
             Some([p, g, upper_a])
         }
     }
+
     pub fn get_ub(&self) -> Option<Key> {
         if self.content_type != HAND_SHAKE_REPLY {
             None
         } else {
-            let b = u128::from_le_bytes(self.payload.to_bytes()[..16].try_into().ok()?);
+            let b = u128::from_le_bytes(self.payload[..16].try_into().ok()?);
             Some(b)
         }
     }
