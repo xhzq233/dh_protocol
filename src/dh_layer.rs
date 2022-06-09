@@ -21,15 +21,15 @@ pub trait DHLayerEndpoint {
     // fn establish_connection(&self, data: &[u8], addr: &SocketAddr) -> Result<(), io::Error>;
 
     // return a prime
-    fn generate_key() -> Key {
+    fn generate_key(bit_size: usize,) -> Key {
         let mut rng = thread_rng();
-        rng.gen_prime(127, None)
+        rng.gen_prime(bit_size, None)
     }
 
     fn get_primitive_root(prime: Key) -> Option<Key> {
         let k = (prime - 1) >> 1;
         println!("computing primitive_root of {}", prime);
-        for i in (2..prime / 2).rev() {//从高处开始找，找大数
+        for i in (2..prime/2).rev() {//从高处开始找，找大数
             if Self::mod_power(i, k, prime) != 1 {
                 println!("find! {}", i);
                 return Some(i);

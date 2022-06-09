@@ -40,20 +40,21 @@ impl DHSever {
             assert_eq!(dh_layer.content_type, DATA_TRANSMISSION);
             assert_eq!(Some(src), self.established_connection.get());
             let mut bytes = dh_layer.payload.decrypted(self.key.get());
-            println!("recv bytes from client {:?}",bytes );
-            let mut res = "server respond to:".as_bytes().to_vec();
+            println!("recv bytes from client {:?}", bytes);
+            let mut res = "server respond to: ".as_bytes().to_vec();
             res.append(&mut bytes);
-            self.send_dh_pkt(&bytes, &src)?;
+            self.send_dh_pkt(&res, &src)?;
         }
     }
 
     fn establish_connection(&self, layer: DHLayer, src: &SocketAddr) -> Result<(), io::Error> {
         let established_connection = if layer.content_type == HAND_SHAKE_REQUEST {
             let [p, g, upper_a] = layer.get_pg_ua().ok_or(io::Error::new(Other, "no pga found"))?;
-            let b = Self::generate_key();
+            let b = Self::generate_key(128);
             let upper_b = Self::mod_power(g, b, p);
             self.key.set(Self::mod_power(upper_a, b, p));
             println!("recv HAND_SHAKE_REQUEST from {}, got p:{}, g:{}, A:{}", src, p, g, upper_a);
+            println!("handshake success! key {}", self.key.get());
             self._socket.send_to(&DHLayer::new_handshake_reply(upper_b), src)?;
             Some(src.clone())
         } else {
